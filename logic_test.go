@@ -1,8 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
+	"encoding/xml"
+	"io"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
 )
 
 func TestShellTrackerSameShell(t *testing.T) {
@@ -99,5 +105,73 @@ func TestRetryPolicyBackoff(t *testing.T) {
 	policy.reset()
 	if delay, ok := policy.next(); !ok || delay != retryBaseDelay {
 		t.Fatalf("reset 后 next = (%v, %v)，期望 (%v, true)", delay, ok, retryBaseDelay)
+	}
+}
+
+// TestBuildTaskXML 检查任务定义的关键设置、路径转义和 XML 合法性。
+func TestBuildTaskXML(t *testing.T) {
+	got := buildTaskXML("S-1-5-21-1000", `C:\Program Files\A & B\ImeSavior.exe`, runLevelHighest)
+
+	for _, want := range []string{
+		`<UserId>S-1-5-21-1000</UserId>`,
+		`<LogonType>InteractiveToken</LogonType>`,
+		`<RunLevel>HighestAvailable</RunLevel>`,
+		`<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>`,
+		`<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>`,
+		`<Command>"C:\Program Files\A &amp; B\ImeSavior.exe"</Command>`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("任务 XML 缺少 %q:\n%s", want, got)
+		}
+	}
+	if n := strings.Count(got, "<UserId>"); n != 2 {
+		t.Fatalf("UserId 出现 %d 次，期望 2 次", n)
+	}
+	if err := checkXML(got); err != nil {
+		t.Fatalf("任务 XML 不合法: %v", err)
+	}
+}
+
+// TestBuildTaskXMLRunLevel 检查普通权限运行级别和无空格路径的写法。
+func TestBuildTaskXMLRunLevel(t *testing.T) {
+	got := buildTaskXML("S-1-5-21-1000", `C:\ImeSavior.exe`, runLevelLeast)
+	if !strings.Contains(got, `<RunLevel>LeastPrivilege</RunLevel>`) {
+		t.Fatalf("任务 XML 未使用 LeastPrivilege:\n%s", got)
+	}
+	if !strings.Contains(got, `<Command>C:\ImeSavior.exe</Command>`) {
+		t.Fatalf("无空格路径不应加引号:\n%s", got)
+	}
+}
+
+// TestEncodeUTF16LE 检查 BOM、字节序和往返解码。
+func TestEncodeUTF16LE(t *testing.T) {
+	const text = "A中"
+	got := encodeUTF16LE(text)
+	want := []byte{0xFF, 0xFE, 0x41, 0x00, 0x2D, 0x4E}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("encodeUTF16LE = % X，期望 % X", got, want)
+	}
+
+	units := make([]uint16, 0, (len(got)-2)/2)
+	for i := 2; i < len(got); i += 2 {
+		units = append(units, binary.LittleEndian.Uint16(got[i:]))
+	}
+	if decoded := string(utf16.Decode(units)); decoded != text {
+		t.Fatalf("解码 = %q，期望 %q", decoded, text)
+	}
+}
+
+// checkXML 用宽松的字符集阅读器检查 XML 是否合法；输入字符串本身是 UTF-8。
+func checkXML(s string) error {
+	decoder := xml.NewDecoder(strings.NewReader(s))
+	decoder.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) { return input, nil }
+	for {
+		_, err := decoder.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 	}
 }

@@ -14,7 +14,7 @@ Windows 11 上修复第三方输入法「首击键被判成英文」的托盘工
 - 开机登录后自动修复一次。
 - explorer 重启后自动修复。
 - 复制粘贴后首击键又变英文时，点「立即修复」。
-- 普通用户权限，不提权；不修改输入法注册表；不联网。
+- 按当前权限运行，不会主动请求提权；不修改输入法注册表；不联网。
 
 ## 下载
 
@@ -25,6 +25,12 @@ Windows 11 上修复第三方输入法「首击键被判成英文」的托盘工
 1. 把 `ImeSavior.exe` 放到固定目录，不要从临时目录或压缩包里直接运行。
 2. 运行后右键通知区域图标；需要开机自动修复就勾选「开机自启」。
 3. 复制粘贴后首击键又变成英文时，点「立即修复」。
+
+开机自启使用 Windows 登录计划任务：
+
+- 如果 exe 设置了「以管理员身份运行」，任务会以最高权限启动，登录时不再弹 UAC。
+- 首次勾选时如果提示权限不足，请先以管理员身份运行一次 ImeSavior，再勾选。
+- 移动 exe 或切换「以管理员身份运行」后，需要重新勾选一次「开机自启」，任务才会按新路径和权限重建。
 
 日志在 `%LOCALAPPDATA%\ImeSavior\ImeSavior.log`，128 KB 轮转，保留 1 份备份。
 
@@ -47,14 +53,15 @@ Linux 上已通过：
 - `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...`
 - 上述交叉编译
 
-Windows 真机上的托盘、COM 开合、explorer 重启、开机自启和复制粘贴后的修复效果尚未验证，需要在 Windows 11 上实际跑一遍。
+Windows 真机上的托盘、COM 开合、explorer 重启、计划任务开机自启和复制粘贴后的修复效果尚未验证，需要在 Windows 11 上实际跑一遍。计划任务的 XML 生成有 Linux 单元测试，但 `schtasks` 注册和登录提权行为只能真机确认。
 
 ## 实现
 
 - MyGo 原生托盘，不启动 WebView。
 - 触摸键盘通过 COM 的 `ITipInvocation` / `IFrameworkInputPane` 开合；调用放在锁定线程，对象和 COM 环境成对释放。
 - explorer 监听用进程句柄和停止事件，正常空闲不轮询；拿不到句柄才退回 5 秒检查。
-- 单实例用 MyGo 的 `RequestSingleInstanceLock`，开机自启用当前用户 Run 项。
+- 单实例用 MyGo 的 `RequestSingleInstanceLock`。
+- 开机自启用登录计划任务（Task Scheduler），不用 Run 键：Run 键无法在登录时启动提权程序。任务按当前进程权限选择 `HighestAvailable` 或 `LeastPrivilege`，保证登录时不被 UAC 拦截。
 - 可见性判断依赖 `IFrameworkInputPane.Location`；不同 Windows 版本行为可能不同。
 
 ## 许可证

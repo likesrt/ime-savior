@@ -76,11 +76,19 @@ func newTrayMenu(watcher *Watcher, logger *log.Logger) *mygo.Menu {
 		{Label: "立即修复", Click: func(*mygo.MenuItem, *mygo.Window) {
 			watcher.TriggerManual()
 		}},
-		{Label: "开机自启", Type: mygo.MenuItemCheckbox, Checked: mygo.App.OpenAtLogin(),
+		{Label: "开机自启", Type: mygo.MenuItemCheckbox, Checked: autostartEnabled(),
 			Click: func(item *mygo.MenuItem, _ *mygo.Window) {
-				if err := mygo.App.SetOpenAtLogin(item.Checked); err != nil {
+				if err := setAutostart(item.Checked); err != nil {
 					logger.Printf("设置开机自启失败: %v", err)
 					item.SetChecked(!item.Checked)
+					mygo.Dialog.Error("设置开机自启失败",
+						"如果提示拒绝访问，请右键 ImeSavior.exe 选择“以管理员身份运行”，再勾选一次。\n\n"+err.Error())
+					return
+				}
+				if item.Checked {
+					logger.Printf("已启用开机自启任务")
+				} else {
+					logger.Printf("已关闭开机自启任务")
 				}
 			}},
 		mygo.Separator(),
